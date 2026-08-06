@@ -416,42 +416,46 @@ class MaskApp:
             messagebox.showinfo("No image", "Open an image first.")
             return
 
-        out = punch_holes(self.src_img, **self._current_params())
-        fmt = self.out_format.get()
-        if fmt == "same":
-            path = filedialog.asksaveasfilename(
-                defaultextension=".png",
-                filetypes=[("PNG", "*.png"), ("All files", "*.*")],
-            )
-            if not path:
-                return
-            out.save(path, dpi=(UV_DPI, UV_DPI))
-            messagebox.showinfo("Saved", path)
+        try:
+            out = punch_holes(self.src_img, **self._current_params())
+        except ValueError as exc:
+            messagebox.showerror("Cannot save", str(exc))
             return
 
-        if fmt == "auto":
-            base_name = self.src_img.filename if hasattr(self.src_img, "filename") else "output"
-            base = os.path.splitext(base_name)[0]
-            ext = ".png"
+        # Suggested filename derived from the source image + current params.
+        default_name = "camera-grid-output.png"
+        src_name = getattr(self.src_img, "filename", None)
+        if src_name:
+            base = os.path.splitext(os.path.basename(src_name))[0]
             hs = self.hole_var.get()
             sp = self.spacing_var.get()
             stg = "-stagger" if self.stagger_var.get() else ""
             mrg = f"-m{self.margin_var.get():.2f}" if self.margin_var.get() > 0 else ""
             if self.img_w_var.get() or self.img_h_var.get():
-                name = f"{base}-{self.img_w_var.get()}X{self.img_h_var.get()}-{hs}-{sp}{stg}{mrg}{ext}"
+                default_name = f"{base}-{self.img_w_var.get()}X{self.img_h_var.get()}-{hs}-{sp}{stg}{mrg}.png"
             else:
-                name = f"{base}-{hs}-{sp}{stg}{mrg}{ext}"
-            path = name
-        else:
-            path = filedialog.asksaveasfilename(
-                defaultextension=".png",
-                filetypes=[("PNG", "*.png"), ("All files", "*.*")],
-                initialfile="camera-grid-output.png",
-            )
-            if not path:
-                return
+                default_name = f"{base}-{hs}-{sp}{stg}{mrg}.png"
 
-        out.save(path, dpi=(UV_DPI, UV_DPI))
+        # Never default into the app bundle's own directory when frozen.
+        initial_dir = None
+        if not getattr(sys, "frozen", False) and src_name:
+            initial_dir = os.path.dirname(src_name)
+
+        path = filedialog.asksaveasfilename(
+            title="Save perforated mask",
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("All files", "*.*")],
+            initialfile=default_name,
+            initialdir=initial_dir,
+        )
+        if not path:
+            return
+
+        try:
+            out.save(path, dpi=(UV_DPI, UV_DPI))
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Save failed", f"{path}\n\n{exc}")
+            return
         messagebox.showinfo("Saved", path)
 
     # ── preview rendering ────────────────────────────────────────────────────
