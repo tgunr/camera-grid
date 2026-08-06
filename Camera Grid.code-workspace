@@ -1,0 +1,57 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"workbench.colorCustomizations": {
+			"activityBar.activeBackground": "#febb72",
+			"activityBar.background": "#febb72",
+			"activityBar.foreground": "#15202b",
+			"activityBar.inactiveForeground": "#15202b99",
+			"activityBarBadge.background": "#019e53",
+			"activityBarBadge.foreground": "#e7e7e7",
+			"activityBarTop.activeBackground": "#febb72",
+			"activityBarTop.background": "#febb72",
+			"activityBarTop.foreground": "#15202b",
+			"activityBarTop.inactiveForeground": "#15202b99",
+			"commandCenter.border": "#15202b99",
+			"commandCenter.foreground": "#15202b",
+			"editorGroup.border": "#febb72",
+			"panel.border": "#febb72",
+			"sash.hoverBorder": "#febb72",
+			"sideBar.border": "#febb72",
+			"statusBar.background": "#fda240",
+			"statusBar.border": "#fda240",
+			"statusBar.debuggingBackground": "#409bfd",
+			"statusBar.debuggingBorder": "#409bfd",
+			"statusBar.debuggingForeground": "#15202b",
+			"statusBar.foreground": "#15202b",
+			"statusBarItem.hoverBackground": "#fc890e",
+			"statusBarItem.remoteBackground": "#017e42",
+			"statusBarItem.remoteForeground": "#15202b",
+			"tab.activeBorder": "#febb72",
+			"titleBar.activeBackground": "#fda240",
+			"titleBar.activeForeground": "#15202b",
+			"titleBar.border": "#fda240",
+			"titleBar.inactiveBackground": "#fda24099",
+			"titleBar.inactiveForeground": "#15202b99",
+			"window.activeBorder": "#febb72",
+			"window.inactiveBorder": "#febb72"
+		},
+		"peacock.color": "#fda240",
+		"dotfileToggle.hideDotfiles": true,
+		"files.exclude": {
+			"**/.git": true,
+			"**/.svn": true,
+			"**/.hg": true,
+			"**/.DS_Store": true,
+			"**/Thumbs.db": true,
+			"**/.*": true,
+			"**/.vscode": true,
+			"**/.gitignore": true,
+			"**/.env": true
+		}
+	}
+}
