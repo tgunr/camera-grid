@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.venv-tk/
+.venv-app/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# PyInstaller build artifacts
+build/
+*.spec.bak

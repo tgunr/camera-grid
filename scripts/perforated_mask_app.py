@@ -32,6 +32,19 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if SCRIPT_DIR not in sys.path:
     sys.path.insert(0, SCRIPT_DIR)
 
+
+def resource_path(rel: str) -> str:
+    """Resolve a bundled resource (PyInstaller _MEIPASS) or a repo-relative file."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        candidate = os.path.join(sys._MEIPASS, rel)
+        if os.path.isfile(candidate):
+            return candidate
+    candidate = os.path.join(SCRIPT_DIR, rel)
+    if os.path.isfile(candidate):
+        return candidate
+    return os.path.join(os.path.dirname(SCRIPT_DIR), rel)
+
+
 try:
     from perforated_mask import (
         to_px,
@@ -339,7 +352,7 @@ class MaskApp:
     def _pick_default_input(self) -> None:
         project_root = os.path.dirname(SCRIPT_DIR)
         candidates = [
-            "/Users/davec/projects/uv/Camera Grid/design/Caution 6X4.png",
+            resource_path(os.path.join("design", "Caution 6X4.png")),
             os.path.join(project_root, "design", "Caution 6X4.png"),
             os.path.join(project_root, "danger.png"),
             os.path.join(project_root, "camera grid.png"),
