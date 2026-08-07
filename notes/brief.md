@@ -19,6 +19,27 @@ surface.
 - Feathering: **alpha-feathered hole edge**
 - Default CLI-style behavior: centred grid, full-image grid unless otherwise specified
 
+## Running the GUI App (macOS)
+
+The interactive editor `scripts/perforated_mask_app.py` must be run with a
+Python that has **both tkinter and Pillow**. On this Mac the Homebrew Python
+3.13 in `.venv/` has neither (`_tkinter` missing, Pillow not installed), and
+installing `python-tk@3.13` requires the Xcode Command Line Tools which are
+not installed.
+
+Anaconda's Python 3.12.4 has everything (tkinter 8.6 + Pillow 10.3.0):
+
+```bash
+/opt/anaconda3/bin/python scripts/perforated_mask_app.py
+```
+
+To produce a physical-size output (e.g. 6 × 4 inch) in the app, set
+**Image Width = 6** and **Image Height = 4** (in inch mode) before saving —
+leaving them at 0 keeps the source pixels and yields a sub-inch file.
+
+Verified 2026-08-06: `output/Caution 6X4-6X4-0.258-0.455-stagger-m0.80.png`
+is 8640 × 5760 px = 6.0000 × 4.0000 inches at 1440 DPI.
+
 ## Repo Structure
 
 - `design/` — Affinity Designer files and exports
