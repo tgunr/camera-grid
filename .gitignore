@@ -9,7 +9,6 @@ env/
 
 # macOS
 .DS_Store
-.smbdelete*
 
 # PyInstaller build artifacts
 build/
