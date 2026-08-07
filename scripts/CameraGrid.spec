@@ -5,16 +5,22 @@ PyInstaller spec — CameraGrid standalone macOS app.
 Bundles the Tkinter hole-grid editor, the perforated_mask punch engine,
 Pillow, Tcl/Tk and the Python interpreter into a double-clickable .app.
 
-Build (from the repo root, with a venv that has Pillow + pyinstaller):
+Build (from any location, with a venv that has Pillow + pyinstaller):
 
     pyinstaller --noconfirm scripts/CameraGrid.spec
 
 The .app lands in dist/CameraGrid.app next to where the spec is built.
+No path edits are required after copying the project folder to another Mac.
 """
 
 import os
+import sys
 
-ROOT = "/Users/davec/Desktop/Camera Grid"
+try:
+    HERE = os.path.abspath(os.path.dirname(__file__))
+except NameError:
+    HERE = os.path.abspath(os.path.dirname(sys.argv[0]))
+ROOT = os.path.abspath(os.path.join(HERE, os.pardir))
 SCRIPTS = os.path.join(ROOT, "scripts")
 DESIGN = os.path.join(ROOT, "design")
 
