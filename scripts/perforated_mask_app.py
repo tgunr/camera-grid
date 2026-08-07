@@ -60,6 +60,11 @@ except ImportError:
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
+DEFAULT_HOLE_SIZE_MM = 0.25
+DEFAULT_SPACING_MM = 0.4
+DEFAULT_FEATHER_MM = 0.005
+DEFAULT_MARGIN_MM = 0.5
+
 
 def current_px_per_unit(unit: str) -> float:
     return PX_PER_MM if unit == "mm" else PX_PER_INCH
@@ -91,11 +96,11 @@ def punch_holes(
     grid_h: "float | None" = None,
     grid_x: float = 0.0,
     grid_y: float = 0.0,
-    hole_diam: float = 0.25,
-    spacing: float = 0.4,
-    feather: float = 0.005,
-    stagger: bool = True,
-    margin: float = 0.5,
+    hole_diam: float = DEFAULT_HOLE_SIZE_MM,
+    spacing: float = DEFAULT_SPACING_MM,
+    feather: float = DEFAULT_FEATHER_MM,
+    stagger: bool = False,
+    margin: float = DEFAULT_MARGIN_MM,
 ) -> "Image.Image":
     out = img.copy()
     work = out.convert("RGBA")
@@ -188,16 +193,17 @@ class MaskApp:
         self.grid_h_var = DoubleVar(value=0.0)
         self.grid_x_var = DoubleVar(value=0.0)
         self.grid_y_var = DoubleVar(value=0.0)
-        self.hole_var = DoubleVar(value=0.5)
-        self.spacing_var = DoubleVar(value=1.5)
-        self.feather_var = DoubleVar(value=0.0)
+        self.hole_var = DoubleVar(value=DEFAULT_HOLE_SIZE_MM)
+        self.spacing_var = DoubleVar(value=DEFAULT_SPACING_MM)
+        self.feather_var = DoubleVar(value=DEFAULT_FEATHER_MM)
         self.stagger_var = BooleanVar(value=False)
-        self.margin_var = DoubleVar(value=0.0)
+        self.margin_var = DoubleVar(value=DEFAULT_MARGIN_MM)
         self.step_var = DoubleVar(value=0.01)
 
         self.prev_unit = self.unit.get()
         self._converting = False
-        self._suppress_refresh = False
+        self._suppress_refresh = 0
+        self._last_changed: "str | None" = None
         self.scales: list[Scale] = []
         self._img_size_widgets: list[Scale] = []
         self._img_size_hint: "Label | None" = None
@@ -206,6 +212,20 @@ class MaskApp:
         self._build_ui()
         self._bind_vars()
         self._pick_default_input()
+
+    @staticmethod
+    def _unit_suffix(unit: str) -> str:
+        return {"inch": "in", "mm": "mm", "px": "px"}.get(unit, unit)
+
+    @staticmethod
+    def _format_param(value: float) -> str:
+        text = f"{value:.3f}".rstrip("0").rstrip(".")
+        return text or "0"
+
+    @staticmethod
+    def _format_param_float(value: float) -> float:
+        text = f"{value:.3f}".rstrip("0").rstrip(".")
+        return 0.0 if text == "" else float(text)
 
     def _add_scale(self, parent: Frame, label: str, var, frm: float, to: float, res: float, row: int) -> None:
         Label(parent, text=label, anchor="w").grid(row=row, column=0, sticky="w", padx=6, pady=3)
@@ -252,6 +272,7 @@ class MaskApp:
 
         Button(ctrl, text="Open Image", command=self.open_image).pack(side="left", padx=4, pady=4)
         Button(ctrl, text="Save Result", command=self.save_result).pack(side="left", padx=4, pady=4)
+        Button(ctrl, text="Save for EufyMaker", command=self.save_eufymaker).pack(side="left", padx=4, pady=4)
         Button(ctrl, text="Reset", command=self.reset_values).pack(side="left", padx=4, pady=4)
 
         OptionMenu(ctrl, self.unit, "mm", "inch", "px").pack(side="left", padx=8, pady=4)
@@ -292,7 +313,7 @@ class MaskApp:
               foreground="#555").grid(row=12, column=0, columnspan=3, sticky="w", padx=8)
         self._img_size_hint = Label(
             sliders,
-            text="Image size is in the current unit (e.g. 6 in × 4 in).",
+            text="Image size is in the current unit (e.g. 6 in × 4 in or 152.4 mm × 101.6 mm).",
             foreground="#555",
         )
         self._img_size_hint.grid(row=13, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 4))
@@ -309,13 +330,21 @@ class MaskApp:
         self.unit.trace_add("write", lambda *_: self._on_unit_change())
         self.step_var.trace_add("write", lambda *_: self._on_step_change())
 
-        var_names = [
-            "img_w_var", "img_h_var", "grid_w_var", "grid_h_var",
-            "grid_x_var", "grid_y_var", "hole_var", "spacing_var", "feather_var",
-            "stagger_var", "margin_var",
-        ]
-        for name in var_names:
-            getattr(self, name).trace_add("write", lambda *_: self.refresh())
+        self.img_w_var.trace_add("write", lambda *_: self._on_var_changed("img_w"))
+        self.img_h_var.trace_add("write", lambda *_: self._on_var_changed("img_h"))
+        self.grid_w_var.trace_add("write", lambda *_: self._on_var_changed("grid_w"))
+        self.grid_h_var.trace_add("write", lambda *_: self._on_var_changed("grid_h"))
+        self.grid_x_var.trace_add("write", lambda *_: self._on_var_changed("grid_x"))
+        self.grid_y_var.trace_add("write", lambda *_: self._on_var_changed("grid_y"))
+        self.hole_var.trace_add("write", lambda *_: self._on_var_changed("hole"))
+        self.spacing_var.trace_add("write", lambda *_: self._on_var_changed("spacing"))
+        self.feather_var.trace_add("write", lambda *_: self._on_var_changed("feather"))
+        self.margin_var.trace_add("write", lambda *_: self._on_var_changed("margin"))
+        self.stagger_var.trace_add("write", lambda *_: self._on_var_changed("stagger"))
+
+    def _on_var_changed(self, name: str) -> None:
+        self._last_changed = name
+        self.refresh()
 
     def _on_unit_change(self):
         if self._converting:
@@ -327,6 +356,22 @@ class MaskApp:
 
         self._converting = True
         self._suppress_refresh = True
+
+        # Capture old values BEFORE touching scale ranges, because
+        # Tkinter clamps the bound variable during configure().
+        old_values = [var.get() for var in [
+            self.hole_var, self.spacing_var, self.feather_var,
+            self.grid_w_var, self.grid_h_var,
+            self.grid_x_var, self.grid_y_var,
+            self.margin_var,
+            self.img_w_var, self.img_h_var,
+        ]]
+
+        # Update scale ranges FIRST so the converted values don't get
+        # clamped by the old unit's limits.
+        self._update_all_scale_ranges()
+        self._update_slider_resolutions()
+
         vars_to_convert = [
             self.hole_var, self.spacing_var, self.feather_var,
             self.grid_w_var, self.grid_h_var,
@@ -334,15 +379,13 @@ class MaskApp:
             self.margin_var,
             self.img_w_var, self.img_h_var,
         ]
-        for var in vars_to_convert:
-            old_val = var.get()
-            var.set(convert_value(old_val, old_unit, new_unit))
+        for var, old_val in zip(vars_to_convert, old_values):
+            converted = convert_value(old_val, old_unit, new_unit)
+            var.set(converted)
 
         self.prev_unit = new_unit
         self._converting = False
         self._suppress_refresh = False
-        self._update_slider_resolutions()
-        self._rebind_img_size_scales()
         self.refresh()
 
     def _on_step_change(self):
@@ -360,10 +403,45 @@ class MaskApp:
             res = max(0.001, base_step)
         for sc in self.scales:
             sc.configure(resolution=res)
-        # Image size scales are also unit-aware
-        if hasattr(self, "_img_size_widgets"):
-            for sc in self._img_size_widgets:
-                sc.configure(resolution=res)
+
+    def _update_all_scale_ranges(self) -> None:
+        """Update every scale's min/max for the current unit."""
+        unit = self.unit.get()
+        mm_ranges = [
+            (0.1, 1.0),    # hole
+            (0.1, 3.0),    # spacing
+            (0.0, 4.0),    # feather
+            (0.0, 420.0),  # grid_w
+            (0.0, 320.0),  # grid_h
+            (0.0, 420.0),  # grid_x
+            (0.0, 320.0),  # grid_y
+        ]
+        for idx, (frm_mm, to_mm) in enumerate(mm_ranges):
+            sc = self.scales[idx]
+            sc.configure(
+                from_=convert_value(frm_mm, "mm", unit),
+                to=convert_value(to_mm, "mm", unit),
+            )
+
+        self._update_margin_scale_range()
+        self._rebind_img_size_scales()
+
+    def _update_margin_scale_range(self) -> None:
+        unit = self.unit.get()
+        if self.src_img:
+            src_w_px, src_h_px = self.src_img.size
+            img_w_px = int(to_px(self.img_w_var.get(), unit)) if self.img_w_var.get() else src_w_px
+            img_h_px = int(to_px(self.img_h_var.get(), unit)) if self.img_h_var.get() else src_h_px
+            margin_max_px = min(img_w_px, img_h_px) / 3.0
+        else:
+            margin_max_px = 0.0
+
+        margin_max = max(0.0, margin_max_px / current_px_per_unit(unit))
+        self.margin_var.set(min(self.margin_var.get(), margin_max))
+        self.scales[-1].configure(
+            from_=0.0,
+            to=margin_max,
+        )
 
     def _rebind_img_size_scales(self) -> None:
         """Reconfigure the Image W/H slider ranges for the current unit.
@@ -389,11 +467,9 @@ class MaskApp:
         if hasattr(self, "_img_size_hint"):
             self._img_size_hint.config(
                 text=(
-                    f"Image size is in {unit}. The output PNG is saved at "
-                    f"1440 DPI so {6 if unit == 'inch' else 152.4} × "
-                    f"{4 if unit == 'inch' else 101.6} {unit} becomes "
-                    f"{int(6 * 1440) if unit == 'inch' else int(152.4 * 1440 / 25.4)} × "
-                    f"{int(4 * 1440) if unit == 'inch' else int(101.6 * 1440 / 25.4)} px."
+                    f"Image size is in the current unit. The output PNG is saved at "
+                    f"1440 DPI, so 6 in × 4 in becomes 8640 × 5760 px; "
+                    f"152.4 mm × 101.6 mm becomes 8640 × 5760 px."
                 )
             )
 
@@ -432,6 +508,131 @@ class MaskApp:
 
     # ── actions ──────────────────────────────────────────────────────────────
 
+    def _apply_src_image_size(self) -> None:
+        unit = self.unit.get()
+        if not self.src_img:
+            return
+
+        src_w_px, src_h_px = self.src_img.size
+        if src_w_px <= 0 or src_h_px <= 0:
+            return
+
+        w_in = src_w_px / UV_DPI
+        h_in = src_h_px / UV_DPI
+        w_mm = round(w_in * 25.4, 1)
+        h_mm = round(h_in * 25.4, 1)
+        if unit == "inch":
+            img_w = max(0.0, w_in)
+            img_h = max(0.0, h_in)
+        elif unit == "mm":
+            img_w = max(0.0, w_mm)
+            img_h = max(0.0, h_mm)
+        else:
+            img_w = max(0.0, src_w_px)
+            img_h = max(0.0, src_h_px)
+
+        if self.img_w_var.get() in (0.0, None):
+            self.img_w_var.set(img_w)
+        if self.img_h_var.get() in (0.0, None):
+            self.img_h_var.set(img_h)
+
+        if self.grid_w_var.get() in (0.0, None):
+            self.grid_w_var.set(img_w)
+        if self.grid_h_var.get() in (0.0, None):
+            self.grid_h_var.set(img_h)
+
+        self._clamp_grid_to_image()
+        self._adjust_margin_consistency()
+
+    def _img_unit_values(self):
+        unit = self.unit.get()
+        if not self.src_img:
+            return 0.0, 0.0, 0.0, unit
+
+        src_w_px, src_h_px = self.src_img.size
+        if unit == "inch":
+            img_w = max(0.0, src_w_px / UV_DPI)
+            img_h = max(0.0, src_h_px / UV_DPI)
+        elif unit == "mm":
+            img_w = max(0.0, round((src_w_px / UV_DPI) * 25.4, 1))
+            img_h = max(0.0, round((src_h_px / UV_DPI) * 25.4, 1))
+        else:
+            img_w = max(0.0, float(src_w_px))
+            img_h = max(0.0, float(src_h_px))
+        return img_w, img_h, float(src_w_px), unit
+
+    def _clamp_grid_to_image(self) -> None:
+        img_w, img_h, _, unit = self._img_unit_values()
+        if img_w == 0.0 and img_h == 0.0:
+            return
+        img_limit_w = self.img_w_var.get() or img_w
+        img_limit_h = self.img_h_var.get() or img_h
+        self.grid_w_var.set(min(float(self.grid_w_var.get()), float(img_limit_w)))
+        self.grid_h_var.set(min(float(self.grid_h_var.get()), float(img_limit_h)))
+
+    def _adjust_margin_consistency(self) -> None:
+        if self._last_changed not in ("margin", "img_w", "img_h", "grid_w", "grid_h"):
+            return
+
+        img_w, img_h, _, unit = self._img_unit_values()
+        if img_w == 0.0 and img_h == 0.0:
+            return
+
+        if self._last_changed == "margin":
+            img_limit_w = self.img_w_var.get() or img_w
+            img_limit_h = self.img_h_var.get() or img_h
+            if float(self.margin_var.get()) * 2 > float(img_limit_w):
+                self.margin_var.set(max(0.0, float(img_limit_w) / 2))
+            if float(self.grid_w_var.get()) > float(img_limit_w) - float(self.margin_var.get()) * 2:
+                self.grid_w_var.set(max(0.0, float(img_limit_w) - float(self.margin_var.get()) * 2))
+            if float(self.grid_h_var.get()) > float(img_limit_h) - float(self.margin_var.get()) * 2:
+                self.grid_h_var.set(max(0.0, float(img_limit_h) - float(self.margin_var.get()) * 2))
+            return
+
+        if self._last_changed in ("img_w", "grid_w"):
+            img_limit_w = float(self.img_w_var.get() or img_w)
+            if img_limit_w == 0.0:
+                return
+            if float(self.grid_w_var.get()) > img_limit_w:
+                self.grid_w_var.set(img_limit_w)
+            if float(self.margin_var.get()) > 0 and float(self.grid_w_var.get()) > 0 and abs(float(self.grid_w_var.get()) - (img_limit_w - float(self.margin_var.get()) * 2)) > 1e-6:
+                self.margin_var.set(0.0)
+            return
+
+        if self._last_changed in ("img_h", "grid_h"):
+            img_limit_h = float(self.img_h_var.get() or img_h)
+            if img_limit_h == 0.0:
+                return
+            if float(self.grid_h_var.get()) > img_limit_h:
+                self.grid_h_var.set(img_limit_h)
+            if float(self.margin_var.get()) > 0 and float(self.grid_h_var.get()) > 0 and abs(float(self.grid_h_var.get()) - (img_limit_h - float(self.margin_var.get()) * 2)) > 1e-6:
+                self.margin_var.set(0.0)
+            return
+
+    def _enforce_hole_spacing_fit(self) -> None:
+        if self.src_img is None:
+            return
+
+        img_w, img_h, _, unit = self._img_unit_values()
+        grid_w = float(self.grid_w_var.get() or img_w or 0.0)
+        grid_h = float(self.grid_h_var.get() or img_h or 0.0)
+        diameter = float(to_px(self.hole_var.get(), unit))
+        pitch = float(to_px(self.spacing_var.get(), unit))
+
+        if pitch <= 0:
+            self.spacing_var.set(self._format_param(current_px_per_unit(unit) * float(self.step_var.get())))
+            pitch = float(to_px(self.spacing_var.get(), unit))
+
+        if diameter <= pitch and diameter <= grid_w and diameter <= grid_h:
+            return
+
+        max_diameter = min(grid_w, grid_h, pitch)
+        if max_diameter <= 0 or diameter <= max_diameter:
+            raise ValueError("Hole size is larger than the grid area or spacing.")
+
+        self.hole_var.set(self._format_param_float(convert_value(max_diameter, "px", unit)))
+        self.spacing_var.set(self._format_param_float(convert_value(max(max_diameter, pitch), "px", unit)))
+
     def open_image(self, path=None):
         if path is None:
             path = filedialog.askopenfilename(
@@ -445,23 +646,19 @@ class MaskApp:
             return
         img = Image.open(path).convert("RGBA")
         self.src_img = img
-        # Reset image size controls to 0 (use full source).
-        # Convert the 0 to the current unit so the slider sits at the
-        # bottom regardless of unit.
-        self.img_w_var.set(0.0)
-        self.img_h_var.set(0.0)
+        self._apply_src_image_size()
         self.refresh()
 
     def reset_values(self) -> None:
-        self.hole_var.set(0.5)
-        self.spacing_var.set(1.5)
-        self.feather_var.set(0.0)
+        self.hole_var.set(DEFAULT_HOLE_SIZE_MM)
+        self.spacing_var.set(DEFAULT_SPACING_MM)
+        self.feather_var.set(DEFAULT_FEATHER_MM)
         self.grid_w_var.set(0.0)
         self.grid_h_var.set(0.0)
         self.grid_x_var.set(0.0)
         self.grid_y_var.set(0.0)
         self.stagger_var.set(False)
-        self.margin_var.set(0.0)
+        self.margin_var.set(DEFAULT_MARGIN_MM)
         self.refresh()
 
     def save_result(self) -> None:
@@ -481,16 +678,14 @@ class MaskApp:
         unit = self.unit.get()
         if src_name:
             base = os.path.splitext(os.path.basename(src_name))[0]
-            hs = self.hole_var.get()
-            sp = self.spacing_var.get()
+            hs = self._format_param(self.hole_var.get())
+            sp = self._format_param(self.spacing_var.get())
             stg = "-stagger" if self.stagger_var.get() else ""
-            mrg = f"-m{self.margin_var.get():.2f}" if self.margin_var.get() > 0 else ""
+            mrg = f"-m{self._format_param(self.margin_var.get())}" if self.margin_var.get() > 0 else ""
             iw = self.img_w_var.get()
             ih = self.img_h_var.get()
             if iw or ih:
-                # Tag the size in physical units so filenames remain
-                # human-readable (e.g. 6X4in, 152X101mm).
-                size_tag = f"{iw:g}X{ih:g}{unit}"
+                size_tag = f"{iw:g}X{ih:g}{self._unit_suffix(unit)}"
                 default_name = f"{base}-{size_tag}-{hs}-{sp}{stg}{mrg}.png"
             else:
                 default_name = f"{base}-{hs}-{sp}{stg}{mrg}.png"
@@ -528,6 +723,75 @@ class MaskApp:
             f"Pixel size:    {w} × {h} px\n"
             f"Print size:    {w_in:.2f} × {h_in:.2f} in\n"
             f"              {w_mm:.1f} × {h_mm:.1f} mm  @ {UV_DPI} DPI",
+        )
+
+    def save_eufymaker(self) -> None:
+        if self.src_img is None:
+            messagebox.showinfo("No image", "Open an image first.")
+            return
+
+        # Force a millimeter-sized export so EufyMaker Studio treats the
+        # resulting file as the intended physical size instead of assuming
+        # 1 pixel = 1 mm.
+        mm_params = {
+            "unit": "mm",
+            "img_w": convert_value(self.img_w_var.get() or 0.0, self.unit.get(), "mm") or None,
+            "img_h": convert_value(self.img_h_var.get() or 0.0, self.unit.get(), "mm") or None,
+            "grid_w": convert_value(self.grid_w_var.get() or 0.0, self.unit.get(), "mm") or None,
+            "grid_h": convert_value(self.grid_h_var.get() or 0.0, self.unit.get(), "mm") or None,
+            "grid_x": convert_value(self.grid_x_var.get(), self.unit.get(), "mm"),
+            "grid_y": convert_value(self.grid_y_var.get(), self.unit.get(), "mm"),
+            "hole_diam": convert_value(self.hole_var.get(), self.unit.get(), "mm"),
+            "spacing": convert_value(self.spacing_var.get(), self.unit.get(), "mm"),
+            "feather": convert_value(self.feather_var.get(), self.unit.get(), "mm"),
+            "stagger": self.stagger_var.get(),
+            "margin": convert_value(self.margin_var.get(), self.unit.get(), "mm"),
+        }
+
+        try:
+            out = punch_holes(self.src_img, **mm_params)
+        except ValueError as exc:
+            messagebox.showerror("Cannot save", str(exc))
+            return
+
+        w, h = out.size
+        w_mm = w / PX_PER_MM
+        h_mm = h / PX_PER_MM
+
+        src_name = getattr(self.src_img, "filename", None)
+        base = os.path.splitext(os.path.basename(src_name))[0] if src_name else "camera-grid"
+        size_tag = f"{w_mm:.1f}X{h_mm:.1f}mm"
+        default_name = f"{base}-{size_tag}.png"
+
+        initial_dir = None
+        if not getattr(sys, "frozen", False) and src_name:
+            initial_dir = os.path.dirname(src_name)
+
+        path = filedialog.asksaveasfilename(
+            title="Save for EufyMaker (mm)",
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("All files", "*.*")],
+            initialfile=default_name,
+            initialdir=initial_dir,
+        )
+        if not path:
+            return
+
+        try:
+            out.save(path, dpi=(UV_DPI, UV_DPI))
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Save failed", f"{path}\n\n{exc}")
+            return
+
+        messagebox.showinfo(
+            "Saved for EufyMaker",
+            f"{path}\n\n"
+            f"Pixel size:    {w} × {h} px\n"
+            f"EufyMaker size: {w_mm:.2f} × {h_mm:.2f} mm\n"
+            f"               {w_mm / 25.4:.2f} × {h_mm / 25.4:.2f} in\n"
+            f"@ {UV_DPI} DPI\n\n"
+            f"If EufyMaker still shows mm, use the pixel size above as the "
+            f"source of truth.",
         )
 
     # ── preview rendering ────────────────────────────────────────────────────

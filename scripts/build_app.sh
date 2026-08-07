@@ -36,9 +36,12 @@ cd "$PROJECT_ROOT"
 echo "🔄 Syncing dependencies..."
 uv sync
 
+echo "🧹 Cleaning previous build artifacts..."
+rm -rf "$PROJECT_ROOT/build" "$PROJECT_ROOT/dist" "$PROJECT_ROOT/output/CameraGrid.app"
+
 echo "🚀 Building CameraGrid.app..."
 uv run --with pyinstaller --with pyinstaller-hooks-contrib \
-    pyinstaller --noconfirm scripts/CameraGrid.spec
+    pyinstaller --clean --noconfirm scripts/CameraGrid.spec
 
 if [ -d "$PROJECT_ROOT/dist/CameraGrid.app" ]; then
     echo "📋 Copying to output/CameraGrid.app..."
