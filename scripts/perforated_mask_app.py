@@ -19,7 +19,6 @@ from tkinter import (
     Checkbutton,
     OptionMenu,
     StringVar,
-    IntVar,
     DoubleVar,
     BooleanVar,
     filedialog,
@@ -180,8 +179,11 @@ class MaskApp:
         self.display_img: "Image.Image | None" = None
         self.tk_img: "ImageTk.PhotoImage | None" = None
 
-        self.img_w_var = IntVar(value=0)
-        self.img_h_var = IntVar(value=0)
+        # Image size controls follow the current unit so users can type
+        # "6" / "4" in inches (or 152.4 / 101.6 in mm) and get the right
+        # physical print size at 1440 DPI. 0 = use the source image size.
+        self.img_w_var = DoubleVar(value=0.0)
+        self.img_h_var = DoubleVar(value=0.0)
         self.grid_w_var = DoubleVar(value=0.0)
         self.grid_h_var = DoubleVar(value=0.0)
         self.grid_x_var = DoubleVar(value=0.0)
@@ -196,19 +198,21 @@ class MaskApp:
         self.prev_unit = self.unit.get()
         self._converting = False
         self._suppress_refresh = False
-        self.scales: list[tuple[Scale, bool]] = []
+        self.scales: list[Scale] = []
+        self._img_size_widgets: list[Scale] = []
+        self._img_size_hint: "Label | None" = None
 
         self.canvas_size = 640
         self._build_ui()
         self._bind_vars()
         self._pick_default_input()
 
-    def _add_scale(self, parent: Frame, label: str, var, frm: float, to: float, res: float, row: int, fixed_res: bool = False) -> None:
+    def _add_scale(self, parent: Frame, label: str, var, frm: float, to: float, res: float, row: int) -> None:
         Label(parent, text=label, anchor="w").grid(row=row, column=0, sticky="w", padx=6, pady=3)
         sc = Scale(parent, variable=var, from_=frm, to=to, resolution=res,
                    orient="horizontal", length=220)
         sc.grid(row=row, column=1, sticky="ew", padx=6, pady=3)
-        self.scales.append((sc, fixed_res))
+        self.scales.append(sc)
 
         entry = Entry(parent, width=8, justify="right")
         entry.grid(row=row, column=2, padx=6, pady=3)
@@ -225,7 +229,7 @@ class MaskApp:
                 var.set(frm)
                 return
             try:
-                val = float(val_str) if isinstance(var, DoubleVar) else int(val_str)
+                val = float(val_str)
                 val = max(frm, min(to, val))
                 var.set(val)
             except (ValueError, TclError):
@@ -266,8 +270,11 @@ class MaskApp:
         self._add_scale(sliders, "Spacing", self.spacing_var, 0.1, 3.0, 0.1, 1)
         self._add_scale(sliders, "Feather", self.feather_var, 0.0, 4.0, 0.05, 2)
 
-        self._add_scale(sliders, "Image Width", self.img_w_var, 0, 9600, 1, 3, fixed_res=True)
-        self._add_scale(sliders, "Image Height", self.img_h_var, 0, 9600, 1, 4, fixed_res=True)
+        # Image size: ranges are unit-aware and rebind on unit change
+        self._img_size_widgets = []
+        self._add_scale(sliders, "Image Width", self.img_w_var, 0.0, 9600.0, 1.0, 3)
+        self._add_scale(sliders, "Image Height", self.img_h_var, 0.0, 9600.0, 1.0, 4)
+        self._img_size_widgets = list(self.scales[-2:])
 
         self._add_scale(sliders, "Grid Width", self.grid_w_var, 0.0, 420.0, 0.1, 5)
         self._add_scale(sliders, "Grid Height", self.grid_h_var, 0.0, 320.0, 0.1, 6)
@@ -283,6 +290,13 @@ class MaskApp:
               foreground="#555").grid(row=11, column=0, columnspan=3, sticky="w", padx=8, pady=(10, 0))
         Label(sliders, text="0 image/grid size = full source / full image.",
               foreground="#555").grid(row=12, column=0, columnspan=3, sticky="w", padx=8)
+        self._img_size_hint = Label(
+            sliders,
+            text="Image size is in the current unit (e.g. 6 in × 4 in).",
+            foreground="#555",
+        )
+        self._img_size_hint.grid(row=13, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 4))
+        self._rebind_img_size_scales()
 
         sliders.grid_columnconfigure(1, weight=1)
 
@@ -318,6 +332,7 @@ class MaskApp:
             self.grid_w_var, self.grid_h_var,
             self.grid_x_var, self.grid_y_var,
             self.margin_var,
+            self.img_w_var, self.img_h_var,
         ]
         for var in vars_to_convert:
             old_val = var.get()
@@ -327,6 +342,7 @@ class MaskApp:
         self._converting = False
         self._suppress_refresh = False
         self._update_slider_resolutions()
+        self._rebind_img_size_scales()
         self.refresh()
 
     def _on_step_change(self):
@@ -342,10 +358,44 @@ class MaskApp:
             res = max(1, round(base_step * 1000.0))
         else:
             res = max(0.001, base_step)
-        for sc, fixed in self.scales:
-            if fixed:
-                continue
+        for sc in self.scales:
             sc.configure(resolution=res)
+        # Image size scales are also unit-aware
+        if hasattr(self, "_img_size_widgets"):
+            for sc in self._img_size_widgets:
+                sc.configure(resolution=res)
+
+    def _rebind_img_size_scales(self) -> None:
+        """Reconfigure the Image W/H slider ranges for the current unit.
+
+        A 6×4 in printout at 1440 DPI needs 8640×5760 pixels. Use the unit
+        in the dropdown to express the physical size, then convert to pixels
+        at 1440 DPI when saving.
+        """
+        if not hasattr(self, "_img_size_widgets"):
+            return
+        unit = self.unit.get()
+        if unit == "mm":
+            to = 600.0  # 600 mm = ~23.6 in
+            res = 0.1
+        elif unit == "inch":
+            to = 24.0   # 24 in = 600 mm
+            res = 0.01
+        else:  # px
+            to = 1440.0 * 24.0  # 24 inches worth of pixels
+            res = 1.0
+        for sc in self._img_size_widgets:
+            sc.configure(from_=0.0, to=to, resolution=res)
+        if hasattr(self, "_img_size_hint"):
+            self._img_size_hint.config(
+                text=(
+                    f"Image size is in {unit}. The output PNG is saved at "
+                    f"1440 DPI so {6 if unit == 'inch' else 152.4} × "
+                    f"{4 if unit == 'inch' else 101.6} {unit} becomes "
+                    f"{int(6 * 1440) if unit == 'inch' else int(152.4 * 1440 / 25.4)} × "
+                    f"{int(4 * 1440) if unit == 'inch' else int(101.6 * 1440 / 25.4)} px."
+                )
+            )
 
     # ── state helpers ────────────────────────────────────────────────────────
 
@@ -395,8 +445,11 @@ class MaskApp:
             return
         img = Image.open(path).convert("RGBA")
         self.src_img = img
-        self.img_w_var.set(0)
-        self.img_h_var.set(0)
+        # Reset image size controls to 0 (use full source).
+        # Convert the 0 to the current unit so the slider sits at the
+        # bottom regardless of unit.
+        self.img_w_var.set(0.0)
+        self.img_h_var.set(0.0)
         self.refresh()
 
     def reset_values(self) -> None:
@@ -425,14 +478,20 @@ class MaskApp:
         # Suggested filename derived from the source image + current params.
         default_name = "camera-grid-output.png"
         src_name = getattr(self.src_img, "filename", None)
+        unit = self.unit.get()
         if src_name:
             base = os.path.splitext(os.path.basename(src_name))[0]
             hs = self.hole_var.get()
             sp = self.spacing_var.get()
             stg = "-stagger" if self.stagger_var.get() else ""
             mrg = f"-m{self.margin_var.get():.2f}" if self.margin_var.get() > 0 else ""
-            if self.img_w_var.get() or self.img_h_var.get():
-                default_name = f"{base}-{self.img_w_var.get()}X{self.img_h_var.get()}-{hs}-{sp}{stg}{mrg}.png"
+            iw = self.img_w_var.get()
+            ih = self.img_h_var.get()
+            if iw or ih:
+                # Tag the size in physical units so filenames remain
+                # human-readable (e.g. 6X4in, 152X101mm).
+                size_tag = f"{iw:g}X{ih:g}{unit}"
+                default_name = f"{base}-{size_tag}-{hs}-{sp}{stg}{mrg}.png"
             else:
                 default_name = f"{base}-{hs}-{sp}{stg}{mrg}.png"
 
@@ -456,7 +515,20 @@ class MaskApp:
         except (OSError, ValueError) as exc:
             messagebox.showerror("Save failed", f"{path}\n\n{exc}")
             return
-        messagebox.showinfo("Saved", path)
+        # Show the resulting pixel + physical size so the user can confirm
+        # the file will print at the right size in eufymake studio.
+        w, h = out.size
+        w_in = w / UV_DPI
+        h_in = h / UV_DPI
+        w_mm = w_in * 25.4
+        h_mm = h_in * 25.4
+        messagebox.showinfo(
+            "Saved",
+            f"{path}\n\n"
+            f"Pixel size:    {w} × {h} px\n"
+            f"Print size:    {w_in:.2f} × {h_in:.2f} in\n"
+            f"              {w_mm:.1f} × {h_mm:.1f} mm  @ {UV_DPI} DPI",
+        )
 
     # ── preview rendering ────────────────────────────────────────────────────
 
