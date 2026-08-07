@@ -91,11 +91,11 @@ def punch_holes(
     grid_h: "float | None" = None,
     grid_x: float = 0.0,
     grid_y: float = 0.0,
-    hole_diam: float = 0.5,
-    spacing: float = 1.5,
-    feather: float = 0.0,
-    stagger: bool = False,
-    margin: float = 0.0,
+    hole_diam: float = 0.25,
+    spacing: float = 0.4,
+    feather: float = 0.005,
+    stagger: bool = True,
+    margin: float = 0.5,
 ) -> "Image.Image":
     out = img.copy()
     work = out.convert("RGBA")
