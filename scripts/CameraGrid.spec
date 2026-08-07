@@ -14,7 +14,7 @@ The .app lands in dist/CameraGrid.app next to where the spec is built.
 
 import os
 
-ROOT = "/Volumes/projects/uv/Camera Grid"
+ROOT = "/Users/davec/Desktop/Camera Grid"
 SCRIPTS = os.path.join(ROOT, "scripts")
 DESIGN = os.path.join(ROOT, "design")
 
