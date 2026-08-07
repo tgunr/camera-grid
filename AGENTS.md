@@ -8,6 +8,7 @@ transparent holes so cameras can look through an otherwise-opaque printed surfac
 - Read `notes/brief.md` for current specs and design decisions
 - Run `python3 ~/.hermes/skills/productivity/projects/scripts/projects.py show CameraGrid` for project state
 - The perforated mask generator is at `scripts/perforated_mask.py`
+- The standalone GUI app is `output/CameraGrid.app` (double-click to launch; rebuild from `scripts/CameraGrid.spec`)
 
 ## Workspace Layout
 
