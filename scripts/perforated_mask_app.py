@@ -441,10 +441,19 @@ class MaskApp:
                     ("All files", "*.*"),
                 ],
             )
+        print(f"[open_image] path={path!r}")
         if not path:
             return
-        img = Image.open(path).convert("RGBA")
+        if not os.path.isfile(path):
+            messagebox.showerror("Open failed", f"File not found:\n{path}")
+            return
+        try:
+            img = Image.open(path).convert("RGBA")
+        except Exception as exc:
+            messagebox.showerror("Open failed", f"{path}\n\n{exc}")
+            return
         self.src_img = img
+        print(f"[open_image] loaded size={img.size!r} mode={img.mode!r}")
         # Reset image size controls to 0 (use full source).
         # Convert the 0 to the current unit so the slider sits at the
         # bottom regardless of unit.
