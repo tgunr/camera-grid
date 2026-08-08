@@ -219,7 +219,7 @@ class MaskApp:
         self.lens_res_w_var = DoubleVar(value=1920)
         self.lens_wall_var = DoubleVar(value=0.30)
         self.lens_ghost_var = DoubleVar(value=20)
-        self.lens_auto_var = BooleanVar(value=True)
+        self.lens_auto_var = BooleanVar(value=False)
         self._lens_info_text = StringVar(value="")
         self._applying_lens_optimum = False
 
@@ -381,7 +381,7 @@ class MaskApp:
             add_lens_row("Ghost min (px)", self.lens_ghost_var, 5)
 
             Button(self._lens_frame, text="Compute optimum",
-                   command=self._on_lens_compute).pack(anchor="w", padx=6, pady=(4, 2))
+                   command=lambda: self._on_lens_compute(apply_override=True)).pack(anchor="w", padx=6, pady=(4, 2))
 
             Label(self._lens_frame, textvariable=self._lens_info_text,
                   foreground="#333", justify="left", anchor="w",
@@ -478,7 +478,7 @@ class MaskApp:
             return None
         return None
 
-    def _on_lens_compute(self):
+    def _on_lens_compute(self, apply_override: bool = False):
         if not HAS_LENS_OPTICS:
             return
         criteria = self._collect_lens_criteria()
@@ -515,8 +515,10 @@ class MaskApp:
         )
         self._lens_info_text.set(info)
 
-        # Apply to sliders (guard against re-entrancy)
-        if not self._applying_lens_optimum:
+        # Apply to sliders only when Auto-apply is on, or the user clicked
+        # the Compute button (apply_override=True). Launch-time/scheduled
+        # computes just show the info.
+        if (apply_override or self.lens_auto_var.get()) and not self._applying_lens_optimum:
             self._applying_lens_optimum = True
             self._suppress_refresh = True
             try:
