@@ -20,11 +20,10 @@ try:
     HERE = os.path.abspath(os.path.dirname(__file__))
 except NameError:
     HERE = os.path.abspath(os.path.dirname(sys.argv[0]))
-ROOT = os.path.abspath(os.path.join(HERE, os.pardir))
-SCRIPTS = os.path.join(ROOT, "scripts")
-DESIGN = os.path.join(ROOT, "design")
+    ROOT = os.path.abspath(os.path.join(HERE, os.pardir))
+    SCRIPTS = os.path.join(ROOT, "scripts")
 
-a = Analysis(
+    a = Analysis(
     [os.path.join(SCRIPTS, "perforated_mask_app.py")],
     pathex=[SCRIPTS],                       # so `perforated_mask` resolves at build time
     binaries=[],
