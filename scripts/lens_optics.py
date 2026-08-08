@@ -251,3 +251,83 @@ def evaluate_fine_grid(
         "ghost_offset_mm": ghost_offset_mm(focal_mm, pitch_mm),
         "wall_mm": pitch_mm - hole_mm,
     }
+
+
+def evaluate_configuration(
+    hole_mm: float,
+    pitch_mm: float,
+    focal_lengths_mm: list[float],
+    f_numbers: list[float],
+    sensor_width_mm: float,
+    resolution_w: int = 1920,
+    stagger: bool = False,
+) -> dict:
+    """
+    Evaluate a hole/pitch configuration across the full zoom range.
+
+    Fine-grid model (pitch << D_EP):
+      - Light loss = open-area fraction (ND filter)
+      - Effective f-number ≈ f_number / sqrt(open_area)
+      - Resolution loss = grating ghost offset f·λ/p (grows with focal length)
+      - Diffraction of individual holes is secondary to ghosting
+
+    Returns overall metrics + per-zoom-point details.
+    """
+    if not focal_lengths_mm or not f_numbers:
+        raise ValueError("focal_lengths and f_numbers required")
+    if len(f_numbers) == 1 and len(focal_lengths_mm) > 1:
+        f_numbers = f_numbers * len(focal_lengths_mm)
+    if len(f_numbers) != len(focal_lengths_mm):
+        raise ValueError("focal_lengths and f_numbers length mismatch")
+    if hole_mm <= 0 or pitch_mm <= 0:
+        raise ValueError("hole and pitch must be > 0")
+    if hole_mm > pitch_mm:
+        raise ValueError("hole cannot exceed pitch (holes would overlap)")
+
+    px = pixel_pitch_mm(sensor_width_mm, resolution_w)
+    oa_fn = open_area_hex if stagger else open_area_square
+    oa = oa_fn(hole_mm, pitch_mm)
+    # Cap open area at packing limit (~0.91 hex, ~0.785 square)
+    oa = min(oa, 0.99)
+    light_loss = light_loss_stops(oa)
+    # Photometric equivalent: light ∝ 1/f² so f_eff = f / sqrt(OA)
+    f_scale = 1.0 / math.sqrt(oa) if oa > 0 else float("inf")
+
+    results = []
+    for f, fnum in zip(focal_lengths_mm, f_numbers):
+        d_ep = entrance_pupil_mm(f, fnum)
+        # Photometric effective f-number after ND loss
+        eff_fnum = fnum * f_scale
+        # Ghost offset at this focal length
+        ghost_px = ghost_offset_px(f, pitch_mm, px)
+        # Airy disk of the *native* lens (for reference) vs after ND
+        # Diffraction softens slightly with higher effective f-number
+        airy_mm = 2.44 * LAMBDA_MM * eff_fnum
+        airy_px = airy_mm / px if px > 0 else float("inf")
+
+        results.append({
+            "focal_mm": f,
+            "f_number": fnum,
+            "entrance_pupil_mm": round(d_ep, 2),
+            "effective_f_number": round(eff_fnum, 2),
+            "airy_disk_px": round(airy_px, 1),
+            "ghost_offset_px": round(ghost_px, 1),
+        })
+
+    # Worst-case across zoom (tele for ghost/airy, any for light loss)
+    worst_ghost = max(r["ghost_offset_px"] for r in results)
+    worst_airy = max(r["airy_disk_px"] for r in results)
+    worst_eff_f = max(r["effective_f_number"] for r in results)
+
+    return {
+        "hole_mm": round(hole_mm, 4),
+        "pitch_mm": round(pitch_mm, 4),
+        "wall_mm": round(pitch_mm - hole_mm, 4),
+        "open_area": round(oa, 4),
+        "light_loss_stops": round(light_loss, 2),
+        "f_scale": round(f_scale, 3),
+        "worst_ghost_px": round(worst_ghost, 1),
+        "worst_airy_px": round(worst_airy, 1),
+        "worst_eff_f_number": round(worst_eff_f, 2),
+        "zoom_results": results,
+    }

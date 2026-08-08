@@ -62,6 +62,7 @@ try:
         PRESETS as LENS_PRESETS,
         compute_fine_grid_optimum,
         compute_single_fine_optimum,
+        evaluate_configuration,
     )
     HAS_LENS_OPTICS = True
 except ImportError:
@@ -212,7 +213,7 @@ class MaskApp:
         self.step_var = DoubleVar(value=0.01)
 
         # ── Lens optics (auto optimum) ───────────────────────────────────
-        self.lens_preset_var = StringVar(value="—")
+        self.lens_preset_var = StringVar(value="axis-p5655" if HAS_LENS_OPTICS and "axis-p5655" in LENS_PRESETS else "—")
         self.lens_sensor_w_var = DoubleVar(value=4.80)
         self.lens_focal_var = DoubleVar(value=0.0)   # 0 = use preset range
         self.lens_fnum_var = DoubleVar(value=0.0)
@@ -386,8 +387,8 @@ class MaskApp:
             Label(self._lens_frame, textvariable=self._lens_info_text,
                   foreground="#333", justify="left", anchor="w",
                   wraplength=320).pack(fill="x", padx=6, pady=(2, 6))
-            # Initial computation if defaults are valid
-            self.root.after(200, self._on_lens_compute)
+            # Initial evaluation of current hole/spacing against lens criteria
+            self.root.after(200, self._on_lens_evaluate)
 
         sliders.grid_columnconfigure(1, weight=1)
 
@@ -424,6 +425,21 @@ class MaskApp:
         self.lens_preset_var.trace_add("write", lambda *_: self._on_lens_preset_change())
         # Stagger affects open-area/ghost math
         self.stagger_var.trace_add("write", lambda *_: self._schedule_lens_recompute())
+        # Live evaluation: when hole/spacing change, show camera impact
+        self.hole_var.trace_add("write", lambda *_: self._schedule_lens_evaluate())
+        self.spacing_var.trace_add("write", lambda *_: self._schedule_lens_evaluate())
+        # Lens criteria changes also re-evaluate
+        for v in (self.lens_sensor_w_var, self.lens_focal_var, self.lens_fnum_var,
+                  self.lens_res_w_var, self.lens_wall_var, self.lens_ghost_var):
+            v.trace_add("write", lambda *_: self._schedule_lens_evaluate())
+
+    def _schedule_lens_evaluate(self):
+        """Debounced live evaluation of current hole/spacing against lens criteria."""
+        if not HAS_LENS_OPTICS:
+            return
+        if self._applying_lens_optimum or self._suppress_refresh:
+            return
+        self.root.after(120, self._on_lens_evaluate)
 
     def _on_lens_preset_change(self):
         if not HAS_LENS_OPTICS:
@@ -435,6 +451,7 @@ class MaskApp:
             self.lens_sensor_w_var.set(preset["sensor_width_mm"])
             self.lens_res_w_var.set(float(preset["resolution_w"]))
         self._schedule_lens_recompute()
+        self._schedule_lens_evaluate()
 
     def _schedule_lens_recompute(self):
         if not HAS_LENS_OPTICS:
@@ -474,9 +491,70 @@ class MaskApp:
             return focals, fnums, sensor_w, res_w, wall, ghost, stagger
         if focal > 0 or fnum > 0:
             # Incomplete custom lens — show hint, don't compute
-            self._lens_info_text.set("Enter both focal length and f-number to compute optimum.")
+            self._lens_info_text.set("Enter both focal length and f-number to evaluate.")
             return None
         return None
+
+    def _hole_spacing_mm(self):
+        """Convert current hole/spacing sliders to mm."""
+        unit = self.unit.get()
+        hole = float(self.hole_var.get())
+        spacing = float(self.spacing_var.get())
+        if unit == "mm":
+            return hole, spacing
+        if unit == "inch":
+            return hole * 25.4, spacing * 25.4
+        # px
+        return hole / PX_PER_MM, spacing / PX_PER_MM
+
+    def _on_lens_evaluate(self):
+        """Live evaluation: show how current hole/spacing affect the camera."""
+        if not HAS_LENS_OPTICS:
+            return
+        if self._applying_lens_optimum:
+            return
+        criteria = self._collect_lens_criteria()
+        if criteria is None:
+            return
+        focals, fnums, sensor_w, res_w, wall, ghost, stagger = criteria
+        try:
+            hole_mm, pitch_mm = self._hole_spacing_mm()
+        except (ValueError, TclError):
+            return
+        if hole_mm <= 0 or pitch_mm <= 0:
+            return
+        try:
+            ev = evaluate_configuration(
+                hole_mm, pitch_mm, focals, fnums, sensor_w, res_w, stagger=stagger,
+            )
+        except Exception as exc:
+            self._lens_info_text.set(f"Eval error: {exc}")
+            return
+
+        # Build a compact multi-line impact report
+        lines = [
+            f"Current: hole {ev['hole_mm']:.3f}mm  pitch {ev['pitch_mm']:.3f}mm  "
+            f"wall {ev['wall_mm']:.3f}mm",
+            f"Open area {ev['open_area']*100:.1f}%  →  light loss {ev['light_loss_stops']:.2f} stops  "
+            f"(f × {ev['f_scale']:.2f})",
+            f"Worst @ tele: ghost {ev['worst_ghost_px']:.0f}px  "
+            f"eff f/{ev['worst_eff_f_number']:.1f}  "
+            f"Airy {ev['worst_airy_px']:.0f}px",
+        ]
+        # Per-zoom one-liners (compact)
+        for r in ev["zoom_results"]:
+            lines.append(
+                f"  {r['focal_mm']:>6.1f}mm f/{r['f_number']}: "
+                f"→ f/{r['effective_f_number']:.1f}  "
+                f"ghost {r['ghost_offset_px']:.0f}px  "
+                f"Airy {r['airy_disk_px']:.0f}px"
+            )
+        # Printability note
+        if ev["wall_mm"] < 0.15:
+            lines.append(f"⚠ wall {ev['wall_mm']:.3f}mm below 0.15mm hard print limit")
+        elif ev["wall_mm"] < 0.30:
+            lines.append(f"⚠ wall {ev['wall_mm']:.3f}mm below 0.30mm soft print limit")
+        self._lens_info_text.set("\n".join(lines))
 
     def _on_lens_compute(self, apply_override: bool = False):
         if not HAS_LENS_OPTICS:
@@ -505,16 +583,6 @@ class MaskApp:
             hole_disp = result.hole_mm * PX_PER_MM
             pitch_disp = result.pitch_mm * PX_PER_MM
 
-        info = (
-            f"Optimum: hole {result.hole_mm:.3f}mm  pitch {result.pitch_mm:.3f}mm  "
-            f"(wall {result.wall_mm:.2f}mm)\n"
-            f"Open area {result.open_area*100:.1f}%  "
-            f"light loss {result.light_loss_stops:.2f} stops  "
-            f"ghost {result.ghost_offset_px:.0f}px @ tele\n"
-            f"{result.notes}"
-        )
-        self._lens_info_text.set(info)
-
         # Apply to sliders only when Auto-apply is on, or the user clicked
         # the Compute button (apply_override=True). Launch-time/scheduled
         # computes just show the info.
@@ -528,6 +596,18 @@ class MaskApp:
                 self._suppress_refresh = False
                 self._applying_lens_optimum = False
             self.refresh()
+            # After applying, evaluate the new values
+            self._on_lens_evaluate()
+        else:
+            # Show suggested optimum without applying
+            info = (
+                f"Suggested (max light): hole {result.hole_mm:.3f}mm  "
+                f"pitch {result.pitch_mm:.3f}mm  wall {result.wall_mm:.2f}mm\n"
+                f"Open {result.open_area*100:.1f}%  loss {result.light_loss_stops:.2f} stops  "
+                f"ghost {result.ghost_offset_px:.0f}px @ tele\n"
+                f"Click Compute to apply, or adjust hole/spacing to evaluate impact."
+            )
+            self._lens_info_text.set(info)
 
     def _on_unit_change(self):
         if self._converting:
