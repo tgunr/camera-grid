@@ -478,8 +478,7 @@ class MaskApp:
     def _pick_default_input(self) -> None:
         project_root = os.path.dirname(SCRIPT_DIR)
         candidates = [
-            resource_path(os.path.join("design", "Caution 6X4.png")),
-            os.path.join(project_root, "design", "Caution 6X4.png"),
+            resource_path(os.path.join("design", "danger.png")),
             os.path.join(project_root, "danger.png"),
             os.path.join(project_root, "camera grid.png"),
             os.path.join(project_root, "black grid.png"),

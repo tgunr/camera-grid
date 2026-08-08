@@ -30,7 +30,7 @@ a = Analysis(
     binaries=[],
     datas=[
         # Sample artwork so the app has a default image on first launch.
-        (os.path.join(DESIGN, "Caution 6X4.png"), "design"),
+        (os.path.join(ROOT, "danger.png"), "design"),
     ],
     hiddenimports=[],
     hookspath=[],
