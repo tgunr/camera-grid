@@ -12,4 +12,15 @@ env/
 
 # PyInstaller build artifacts
 build/
+dist/
 *.spec.bak
+output/CameraGrid.app/
+
+# Generated outputs
+*.png
+
+# Affinity Designer source (large binary)
+*.af
+
+# Scratch / temp files
+test_nw.swift

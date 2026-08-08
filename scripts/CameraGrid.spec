@@ -3,30 +3,37 @@
 PyInstaller spec — CameraGrid standalone macOS app.
 
 Bundles the Tkinter hole-grid editor, the perforated_mask punch engine,
-Pillow, Tcl/Tk and the Python interpreter into a double-clickable .app.
+lens_optics (dual-regime optics calculator), Pillow, Tcl/Tk and the Python
+interpreter into a double-clickable .app.
 
-Build (from the repo root, with a venv that has Pillow + pyinstaller):
+Build (from any location, with a venv that has Pillow + pyinstaller):
 
     pyinstaller --noconfirm scripts/CameraGrid.spec
 
 The .app lands in dist/CameraGrid.app next to where the spec is built.
+No path edits are required after copying the project folder to another Mac.
 """
 
 import os
+import sys
 
-ROOT = "/Volumes/projects/uv/Camera Grid"
+try:
+    HERE = os.path.abspath(os.path.dirname(__file__))
+except NameError:
+    HERE = os.path.abspath(os.path.dirname(sys.argv[0]))
+
+ROOT = os.path.abspath(os.path.join(HERE, os.pardir))
 SCRIPTS = os.path.join(ROOT, "scripts")
-DESIGN = os.path.join(ROOT, "design")
 
 a = Analysis(
     [os.path.join(SCRIPTS, "perforated_mask_app.py")],
-    pathex=[SCRIPTS],                       # so `perforated_mask` resolves at build time
+    pathex=[SCRIPTS],                       # so `perforated_mask`/`lens_optics` resolve at build time
     binaries=[],
     datas=[
         # Sample artwork so the app has a default image on first launch.
-        (os.path.join(DESIGN, "Caution 6X4.png"), "design"),
+        (os.path.join(ROOT, "danger.png"), "design"),
     ],
-    hiddenimports=[],
+    hiddenimports=["lens_optics"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

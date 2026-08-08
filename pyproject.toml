@@ -1,0 +1,15 @@
+[project]
+name = "camera-grid"
+version = "0.1.0"
+description = "UV-printer perforated mask generator and standalone macOS app"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "Pillow>=10.0",
+]
+
+[project.optional-dependencies]
+build = [
+    "pyinstaller>=6.0",
+    "pyinstaller-hooks-contrib>=2024.0",
+]
